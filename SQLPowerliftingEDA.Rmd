@@ -1,0 +1,241 @@
+---
+title: "Powerlifting EDA - SQL"
+author: "Samad Patel"
+date: "9/15/2018"
+output: pdf_document
+---
+
+```{r Libraries, Connection, echo = FALSE, warning=FALSE, message=FALSE}
+# Libraries
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(lubridate)
+library(gridExtra)
+library(RMySQL)
+con <- dbConnect(MySQL(), 
+                 user = 'root', 
+                 password = 'spronwhikkle', 
+                 host = 'localhost', 
+                 dbname = 'powerlifting')
+```
+
+# Investigation By Year
+# Average Age 
+We will investigate from 1998 onward, as we have complete data for every year from that point on. 
+```{r, echo = FALSE, warning = FALSE, message=FALSE}
+# Write our sql query
+age_query <- '
+SELECT YEAR(meets.Date) AS Year, AVG(lifts2.Age) AS Avg_Age FROM lifts2
+LEFT JOIN meets USING(MeetID)
+GROUP BY Year
+HAVING Year >= 1998
+ORDER BY Year;
+'
+# Generate dataframe with query
+age <- dbGetQuery(con, age_query)
+
+# Create plot 
+ggplot(age) + geom_line(aes(x=Year, y = Avg_Age, colour = 'blue'), size = 1.3) + 
+   theme_fivethirtyeight() + scale_color_fivethirtyeight(guide = FALSE) + 
+   scale_x_continuous(breaks = seq(1982, 2018, by = 6)) + 
+   theme(plot.title = element_text(hjust = .5), axis.title = element_text()) +
+      scale_x_continuous(breaks = seq(1998, 2018, 2), name = seq(1998, 2018, 2)) + 
+      ggtitle('Average Age of Competitors Over Time') + ylab('Average Age') + 
+      xlab('Year')
+```
+
+There is no clear trend overall, however it appears as though the average age has been decreasing in the last decade. 
+
+
+## Sexes
+First, let's observe the number of women in Powerlifting over time. 
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+# Write SQL Query
+women_query <- '
+SELECT YEAR(m.Date) AS Year, 
+       SUM(CASE WHEN l.Sex = \'F\' THEN 1 ELSE 0 END) AS Num_Women 
+FROM lifts2 AS l
+LEFT JOIN meets AS m USING(MeetID)
+GROUP BY Year
+ORDER BY Year; 
+'
+
+# Generate df using query
+women <- dbGetQuery(con, women_query)
+# Filter 1997 onwards 
+ggplot(women %>% filter(Year >= 1997 & Year <=2017)) + 
+   geom_bar(stat = 'identity', aes(x=Year, y=Num_Women, fill = 'blue')) + 
+   theme_fivethirtyeight() + scale_fill_fivethirtyeight(guide = FALSE) + 
+   scale_x_continuous(breaks = seq(1997, 2017, 2)) + 
+   scale_y_continuous(breaks = seq(0, 20000, 2500)) + 
+   theme(axis.title = element_text(), plot.subtitle = element_text(hjust =.5), 
+         axis.text.x = element_text(angle = 45), plot.title = element_text(hjust=.5)) + 
+   ggtitle('Women in PowerLifting Meets', subtitle = 'Per Year') + 
+   ylab('Number of Women')
+```
+
+Now let's observe the proportion of women to men in the last decade. 
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+both_genders_query <- '
+SELECT Sex, COUNT(Sex), YEAR(meets.Date) as Year FROM lifts2
+INNER JOIN meets USING(MeetID)
+GROUP BY Year, Sex
+HAVING Year >= 1996
+ORDER BY Year;' 
+
+both_genders <- dbGetQuery(con, both_genders_query)
+ggplot(both_genders %>% filter(Year <= 2017)) + 
+   geom_bar(stat = 'identity', aes(x = Year, y = `COUNT(Sex)`, fill = Sex)) +
+   theme_fivethirtyeight() + scale_fill_manual(values = c('#FF2700', "#008FD5")) + 
+   scale_x_continuous(breaks = seq(1996, 2017, 1)) + 
+   theme(axis.title = element_text(), plot.subtitle = element_text(hjust =.5), 
+         axis.text.x = element_text(angle = 45), plot.title = element_text(hjust=.5),
+         legend.position = 'right', legend.direction = 'vertical') + 
+   ggtitle('Men and Women in PowerLifting Meets', subtitle = 'Per Year') + 
+   ylab('Number of Competitors')
+```
+
+We can also view the explicit ratio. 
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+ratio_query <- '
+SELECT YEAR(meets.Date) AS Year, 
+	   SUM(CASE WHEN lifts2.Sex = \'F\' THEN 1 ELSE 0 END) / 
+      SUM(CASE WHEN lifts2.Sex = \'M\' THEN 1 ELSE 0 END) AS M2F_RATIO
+FROM lifts2
+LEFT JOIN meets ON lifts2.MeetID = meets.MeetID
+GROUP BY Year
+HAVING Year >= 1998 AND Year < 2018
+ORDER BY Year;'
+
+ratios <- dbGetQuery(con, ratio_query)
+ggplot(ratios) + geom_line(aes(x=Year, y = M2F_RATIO), size = 1.3, colour = '#FF2700') + 
+   theme_fivethirtyeight() + 
+   scale_x_continuous(breaks = seq(1996, 2017, by = 1)) + 
+   #scale_y_continuous(breaks = seq(1,8,1)) + 
+   theme(axis.title = element_text(), plot.subtitle = element_text(hjust =.5), 
+         axis.text.x = element_text(angle = 45), plot.title = element_text(hjust=.5),
+         legend.position = 'right', legend.direction = 'vertical') +  
+      ggtitle('Number of Females Per One Male') + ylab('Ratio') + 
+      xlab('Year')
+```
+
+We can clearly observe that more and more women have been competing in powerlifitng over time, with the greatest changes and consistency in trend happening in the last decade. 
+
+# Bench, Squat, and Deadlift Over Time
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+lifts_query <- '
+SELECT MAX(lifts2.BestBenchKg) * 2.20462 AS Bench, 
+       MAX(lifts2.BestSquatKg) * 2.20462 AS Squat, 
+       MAX(lifts2.BestDeadliftKg) * 2.20462 AS Deadlift,
+       YEAR(meets.Date) AS Year
+FROM lifts2
+INNER JOIN meets USING(MeetID)
+GROUP BY Year
+HAVING YEAR < 2018
+ORDER BY Year;
+'
+
+lifts <- dbGetQuery(con, lifts_query)
+ggplot(lifts) + geom_line(aes(Year, Bench, colour = 'Bench')) + 
+   geom_line(aes(Year, Squat, color = 'Squat')) + 
+   geom_line(aes(Year, Deadlift, color = 'Deadlift')) + 
+   scale_x_continuous(breaks = seq(min(lifts$Year), max(lifts$Year), 5)) + 
+   scale_color_fivethirtyeight(name = 'Lift') + theme_fivethirtyeight() + 
+   theme(axis.title = element_text(), plot.subtitle = element_text(hjust =.5), 
+         axis.text.x = element_text(angle = 45), plot.title = element_text(hjust=.5),
+         legend.position = 'right', legend.direction = 'vertical', 
+         legend.title = element_text(hjust = .5)) + 
+   ggtitle('Max Lifts Over Time') + 
+   ylab('Weight (lbs)') 
+```
+The last few years appear a bit suspicious to me, given that Bench is higher than Deadlift by quite a margin. But besides that, it's quite remarkable how similarly they all change together. That makes me interested in what the correlation matrix might look like. 
+
+## Correlation Matrix
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+library(corrplot)
+corr_mat <- cor(lifts[,1:3])
+
+corrplot(corr_mat, method = 'color', type = 'lower', addCoef.col = 'white', 
+         tl.col="black", tl.srt=0, diag = FALSE, title = 'Correlation of Lifts')
+```
+
+
+# Maps
+We can use data from the Meet table to create some maps. 
+
+## Map of Average Wilks Across the Continental US
+```{r, echo = FALSE, warning=FALSE}
+wilks_query <- '
+SELECT meets.MeetState, AVG(lifts2.Wilks) AS Wilks FROM lifts2
+LEFT JOIN meets USING(MeetID)
+WHERE meets.MeetCountry = \'USA\'
+GROUP BY meets.MeetState
+ORDER BY meets.MeetState; 
+'
+wilks <- dbGetQuery(con, wilks_query)
+# Change DC to VA
+wilks[wilks$MeetState == 'DC', 'MeetState'] <- 'VA'
+# Remove Alaska, Hawaii and Blank state 
+wilks <- wilks %>% filter(MeetState != '' & MeetState != 'AK' & MeetState != 'HI')
+# Change abbreviation to name
+wilks$MeetState <- state.name[match(wilks$MeetState, state.abb)] %>% tolower()
+# Change name of meetstate to region
+colnames(wilks)[1] <- 'region'
+# Create map data
+usa <- map_data('state')
+# Map to ggplot
+map <- ggplot(data = usa) + geom_map(map = usa, aes(long, lat, map_id = region))
+map + geom_map(data = wilks, map = usa, aes(fill = Wilks, map_id = region)) + 
+   scale_fill_gradient(low = 'white', high = 'cyan4') + 
+   theme(axis.title = element_blank(), panel.grid = element_blank(), 
+         panel.background = element_blank(), axis.ticks = element_blank(), 
+         axis.text = element_blank(), plot.title = element_text(hjust = .5, size = 16)) + 
+   ggtitle('Average Wilks Score By State')
+```
+
+## Number of Meets Relative to Population 
+Here we will invstigate how many meets there are in each state relative to the State's population. We will make use of the build in dataset state.x77, which contains information concerning state populations. This information is from 1977, so it's not up to date. 
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+num_meets_query <- '
+SELECT meets.MeetState, COUNT(lifts2.MeetID) AS Num_Meets FROM lifts2
+LEFT JOIN meets USING(MeetID) 
+WHERE meets.MeetCountry = \'USA\' AND meets.MeetState != \'\'
+GROUP BY meets.MeetState
+ORDER BY Num_Meets;'
+
+num_meets <- dbGetQuery(con, num_meets_query)
+# Add DC meets to VA meets
+num_meets[num_meets$MeetState == 'VA', 2] <- num_meets[num_meets$MeetState == 'VA', 2] + 
+                                             num_meets[num_meets$MeetState == 'DC', 2]
+# Remove DC, HI, AK
+num_meets <- num_meets %>% filter(MeetState != 'DC' & MeetState != 'HI' & MeetState != 'AK')
+# Change name of meetstate to region
+colnames(num_meets)[1] <- 'region'
+# Change abbreviation to name
+num_meets$region <- state.name[match(num_meets$region, state.abb)] %>% tolower()
+
+# Now normalize using state.x77
+# Create the vector state.pop that includes population
+state.pop <- state.x77[,1]
+# Remove Hawaii and Alaska
+state.pop <- state.pop[names(state.pop) != 'Alaska' & names(state.pop) != 'Hawaii']
+# Make names lowercase
+names(state.pop) <- names(state.pop) %>% tolower()
+# Create a vector that maps state.pop and num_meets
+match_vector <- match(names(state.pop), num_meets$region)
+# Normalize
+num_meets$NormNumMeets <- num_meets[match_vector,2] / state.pop
+
+map + geom_map(data = num_meets, map = usa, aes(fill = NormNumMeets, map_id = region)) + 
+   scale_fill_gradient(low = 'white', high = 'cyan4') + 
+   theme(axis.title = element_blank(), panel.grid = element_blank(), 
+         panel.background = element_blank(), axis.ticks = element_blank(), 
+         axis.text = element_blank(), plot.title = element_text(hjust = .5, size = 16), 
+         plot.subtitle = element_text(hjust = .5)) + 
+   ggtitle('Number of Meets Per State', subtitle = 'Normalized by Population')
+```
+
+Minnesotta is a huge outlier, which skews the appearance of the rest of the map. 
