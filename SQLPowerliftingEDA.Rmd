@@ -51,6 +51,7 @@ There is no clear trend overall, however it appears as though the average age ha
 
 ## Sexes
 First, let's observe the number of women in Powerlifting over time. 
+
 ```{r, echo = FALSE, message=FALSE, warning=FALSE}
 # Write SQL Query
 women_query <- '
@@ -77,6 +78,7 @@ ggplot(women %>% filter(Year >= 1997 & Year <=2017)) +
 ```
 
 Now let's observe the proportion of women to men in the last decade. 
+
 ```{r, echo = FALSE, message=FALSE, warning=FALSE}
 both_genders_query <- '
 SELECT Sex, COUNT(Sex), YEAR(meets.Date) as Year FROM lifts2
@@ -98,6 +100,7 @@ ggplot(both_genders %>% filter(Year <= 2017)) +
 ```
 
 We can also view the explicit ratio. 
+
 ```{r, echo = FALSE, message=FALSE, warning=FALSE}
 ratio_query <- '
 SELECT YEAR(meets.Date) AS Year, 
@@ -150,6 +153,7 @@ ggplot(lifts) + geom_line(aes(Year, Bench, colour = 'Bench')) +
    ggtitle('Max Lifts Over Time') + 
    ylab('Weight (lbs)') 
 ```
+
 The last few years appear a bit suspicious to me, given that Bench is higher than Deadlift by quite a margin. But besides that, it's quite remarkable how similarly they all change together. That makes me interested in what the correlation matrix might look like. 
 
 ## Correlation Matrix
